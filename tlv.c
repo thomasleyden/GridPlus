@@ -240,7 +240,7 @@ int tlv_parse(TLVToken* t, int* nTok, const void* src, int srcLen)
         TLV_LOG("tag: %08X\n\r", t[n].tag);
 
         // Decode the length field
-        err = decode_length(t[n].len, &s, END-s);
+        err = decode_length(&t[n].len, &s, END-s);
         if (err < 0) {
             n = err;
             break;
