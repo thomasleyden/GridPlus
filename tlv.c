@@ -38,59 +38,59 @@ static inline uint32_t trim_leading_zeros(uint32_t i)
 // Read the tag field from the source buffer and decode it
 // Modifies src to point to next byte after tag bytes
 // Returns tag, or negative error
-static inline int decode_tag(uint32_t* tag, const uint8_t** src, int srcLen)
+static inline int decode_tag(uint32_t* pTag, const uint8_t** ppSrc, int srcLen)
 {
-    if (!tag || !src || !*src)
+    if (!pTag || !ppSrc || !*ppSrc)
         return TLV_ERR_BADARG;
     if (srcLen <= 0)
         return TLV_ERR_NODATA;
 
-    const uint8_t* s = *src;
-    const uint8_t* const BEGIN = s;
-    const uint8_t* const END = s + srcLen;
-    *src = 0; // Reset src to null
+    const uint8_t* pSrcCurr = *ppSrc;
+    const uint8_t* const BEGIN = pSrcCurr;
+    const uint8_t* const END = pSrcCurr + srcLen;
+    *ppSrc = 0; // Reset src to null
 
-    if ((*s & 0x1F) > 30) { // Is the tag extended?
+    if ((*pSrcCurr & 0x1F) > 30) { // Is the tag extended?
         // First subsequent octet must not be 0
-        if (srcLen < 2 || *(s+1) == 0)
+        if (srcLen < 2 || *(pSrcCurr+1) == 0)
             return TLV_ERR_INVAL;
 
-        *tag = *s++;
+        *pTag = *pSrcCurr++;
         do {
             // Detect overflow
-            if ((*tag << 8) < *tag)
+            if ((*pTag << 8) < *pTag)
                 return TLV_ERR_OVERFLOW;
 
             // Join each octet of the tag
-            *tag = (*tag << 8) + (*s & 0xFF);
-        } while (s < END && *s++ & 0x80); // Last octet will clear MSB
+            *pTag = (*pTag << 8) + (*pSrcCurr & 0xFF);
+        } while (pSrcCurr < END && *pSrcCurr++ & 0x80); // Last octet will clear MSB
 
-        if (s > END)
+        if (pSrcCurr > END)
             return TLV_ERR_MSGSIZE;
 
-        *src = s;
+        *ppSrc = pSrcCurr;
     } else { // Tag is just one byte
-        *src = s+1;
-        *tag = *s;
+        *ppSrc = pSrcCurr+1;
+        *pTag = *pSrcCurr;
     }
 
-    return s-BEGIN;
+    return pSrcCurr-BEGIN;
 }
 
 // Encode the tag and Write it to the destination buffer
 // Modifies dest to point to next byte after tag bytes
 // Returns number of bytes written, or negative error
-static inline int encode_tag(uint8_t** dest, int destLen, uint32_t tag)
+static inline int encode_tag(uint8_t** ppDest, int destLen, uint32_t tag)
 {
-    if (!dest || !*dest)
+    if (!ppDest || !*ppDest)
         return TLV_ERR_BADARG;
     if (destLen <= 0)
         return TLV_ERR_NOMEM;
 
-    uint8_t* d = *dest;
-    const uint8_t* const BEGIN = d;
-    const uint8_t* const END = d + destLen;
-    *dest = 0; // Reset dest to null
+    uint8_t* pDestCurr = *ppDest;
+    const uint8_t* const BEGIN = pDestCurr;
+    const uint8_t* const END = pDestCurr + destLen;
+    *ppDest = 0; // Reset dest to null
 
     if (tag < 0 || tag > 0xFF) { // Extended tag
         // Scan to first tag byte
@@ -103,11 +103,11 @@ static inline int encode_tag(uint8_t** dest, int destLen, uint32_t tag)
         // Write tag bytes
         while (tag > 0x00FFFFFF) {
             // Check for enough memory
-            if (d >= END)
+            if (pDestCurr >= END)
                 return TLV_ERR_NOMEM;
 
             // Copy next tag byte
-            *d++ = GET_MSBYTE(tag);
+            *pDestCurr++ = GET_MSBYTE(tag);
             tag <<= 8;
         }
     } else { // Short tag
@@ -115,213 +115,210 @@ static inline int encode_tag(uint8_t** dest, int destLen, uint32_t tag)
             return TLV_ERR_INVAL; // Invalid short tag
 
         // Check for end of buffer
-        if (d >= END)
+        if (pDestCurr >= END)
             return TLV_ERR_NOMEM;
 
         // Write tag byte
-        *d++ = tag & 0xFF;
+        *pDestCurr++ = tag & 0xFF;
     }
 
-    *dest = d;
-    return d-BEGIN; 
+    *ppDest = pDestCurr;
+    return pDestCurr-BEGIN; 
 }
 
 // Read the length field from the source buffer and decode it
 // Modifies src to point to next byte after length bytes
 // Returns number of bytes read or negative error
-static inline int decode_length(uint32_t* length, const uint8_t** src, int srcLen)
+static inline int decode_length(uint32_t* pLength, const uint8_t** ppSrc, int srcLen)
 {
-    if (!length || !src || !*src)
+    if (!pLength || !ppSrc || !*ppSrc)
         return TLV_ERR_BADARG;
     if (srcLen <= 0)
         return TLV_ERR_NODATA;
 
-    const uint8_t* s = *src;
-    const uint8_t* const BEGIN = s;
-    const uint8_t* const END = s + srcLen;
-    *src = (void*) 0; // Reset src to null
+    const uint8_t* pSrcCurr = *ppSrc;
+    const uint8_t* const BEGIN = pSrcCurr;
+    const uint8_t* const END = pSrcCurr + srcLen;
+    *ppSrc = (void*) 0; // Reset src to null
 
-    if (*s & 0x80) { // Is the length in long form?
+    if (*pSrcCurr & 0x80) { // Is the length in long form?
         // The first byte must not be 0xFF
-        if (*s == 0xFF)
+        if (*pSrcCurr == 0xFF)
             return TLV_ERR_INVAL;
 
-        const int N = *s++ & 0x7F; // Number of length bytes to use
-        if (N > 4 || (N > 3 && s[3] & 0x80))
+        const int N = *pSrcCurr++ & 0x7F; // Number of length bytes to use
+        if (N > 4 || (N > 3 && pSrcCurr[3] & 0x80))
             return TLV_ERR_OVERFLOW;
 
         int len = 0;
         for(int i = 0; i < N; i++)
-            len = (len << 8) + s[i];
-        *src = s+N;
-        *length = len;
+            len = (len << 8) + pSrcCurr[i];
+        *ppSrc = pSrcCurr+N;
+        *pLength = len;
     } else { // Tag is just one byte
-        *src = s+1;
-        *length = *s;
+        *ppSrc = pSrcCurr+1;
+        *pLength = *pSrcCurr;
     }
 
-    if (s >= END)
+    if (pSrcCurr >= END)
         return TLV_ERR_MSGSIZE;
 
-    return s-BEGIN;
+    return pSrcCurr-BEGIN;
 }
 
 // Encode the length and Write it to the destination buffer
 // Modifies dest to point to next byte after length bytes
 // Returns number of bytes written, or negative error
-static inline int encode_length(uint8_t** dest, int destLen, uint32_t length)
+static inline int encode_length(uint8_t** ppDest, int destLen, uint32_t length)
 {
-    if (!dest || !*dest || length <= 0)
+    if (!ppDest || !*ppDest || length <= 0)
         return TLV_ERR_BADARG;
     if (destLen <= 0)
         return TLV_ERR_NOMEM;
 
-    uint8_t* d = *dest;
-    const uint8_t* const BEGIN = d;
-    const uint8_t* const END = d + destLen;
-    *dest = 0; // Reset dest to null
+    uint8_t* pDestCurr = *ppDest;
+    const uint8_t* const BEGIN = pDestCurr;
+    const uint8_t* const END = pDestCurr + destLen;
+    *ppDest = 0; // Reset dest to null
 
     if (length > 0x7F) { // Long form
         // Determine how many length bytes
         int n = min_size(length);
         if (n > 0x7E) // This long cannot fit in TLV encoding
             return TLV_ERR_OVERFLOW;
-        if (d >= END)
+        if (pDestCurr >= END)
             return TLV_ERR_NOMEM;
-        *d++ = (n | 0x80) & 0xFF; 
+        *pDestCurr++ = (n | 0x80) & 0xFF; 
 
         // Write length bytes
         length = trim_leading_zeros(length);
         while (n-- > 0) {
-            if (d >= END)
+            if (pDestCurr >= END)
                 return TLV_ERR_NOMEM;
 
-            *d++ = GET_MSBYTE(length);
+            *pDestCurr++ = GET_MSBYTE(length);
             length <<= 8;
         }
     } else { // Short form
-        if (d >= END)
+        if (pDestCurr >= END)
             return TLV_ERR_NOMEM;
-        *d++ = length & 0xFF;
+        *pDestCurr++ = length & 0xFF;
     }
 
-    *dest = d;
-    return d-BEGIN;
+    *ppDest = pDestCurr;
+    return pDestCurr-BEGIN;
 }
 
-int tlv_parse(TLVToken* t, int* nTok, const void* src, int srcLen)
+int tlv_parse(TLVToken* pTokenList, int* nTok, const void* pSrc, int srcLen)
 {
-    if (!t || !nTok || *nTok < 0 || !src || srcLen < 0)
+    if (!pTokenList || !nTok || *nTok < 0 || !pSrc || srcLen < 0)
         return TLV_ERR_BADARG;
 
-    const uint8_t* s = src;
-    const uint8_t* const BEGIN = s;
-    const uint8_t* const END = s + srcLen;
+    const uint8_t* pSrcCurr = pSrc;
+    const uint8_t* const BEGIN = pSrcCurr;
+    const uint8_t* const END = pSrcCurr + srcLen;
 
     TLV_LOG("Parse input: ");
-    TLV_LOG_HEX(src, srcLen);
+    TLV_LOG_HEX(pSrc, srcLen);
     TLV_LOG_LINE();
 
-    int n = 0;
     int err = 0;
-    while (s <= END) {
+    int currTokenCnt = 0;
+    for(currTokenCnt = 0; currTokenCnt < *nTok; currTokenCnt++) {
         // Check for memory
-        if (n >= *nTok) {
-            n = TLV_ERR_NOMEM;
+        if (currTokenCnt >= *nTok) {
+            currTokenCnt = TLV_ERR_NOMEM;
             break;
         }
 
         // Decode the tag field
-        err = decode_tag(&t[n].tag, &s, END-s);
+        err = decode_tag(&pTokenList[currTokenCnt].tag, &pSrcCurr, END-pSrcCurr);
         if (err < 0) {
-            n = err;
             break;
         }
-        TLV_LOG("tag: %08X\n\r", t[n].tag);
+        TLV_LOG("tag: %08X\n\r", pTokenList[currTokenCnt].tag);
 
         // Decode the length field
-        err = decode_length(&t[n].len, &s, END-s);
+        err = decode_length(&pTokenList[currTokenCnt].len, &pSrcCurr, END-pSrcCurr);
         if (err < 0) {
-            n = err;
             break;
         }
-        TLV_LOG("len: %u\n\r", t[n].len);
+        TLV_LOG("len: %u\n\r", pTokenList[currTokenCnt].len);
 
         // Save pointer to value field
-        t[n].val = s;
-        if (t[n].val == 0) {
-            n = TLV_ERR_UNKNOWN;
+        pTokenList[currTokenCnt].val = pSrcCurr;
+        if (pTokenList[currTokenCnt].val == 0) {
+            err = TLV_ERR_UNKNOWN;
             break;
         }
         TLV_LOG("val: ");
-        TLV_LOG_HEX(t[n].val, t[n].len);
+        TLV_LOG_HEX(pTokenList[currTokenCnt].val, pTokenList[currTokenCnt].len);
         TLV_LOG_LINE();
 
         // Point to next object
-        s = t[n].val;
-        n++;
+        pSrcCurr = pSrcCurr + pTokenList[currTokenCnt].len;
     }
 
     // Output the number of tokens found
-    if (n >= 0)
-        *nTok = n;
+    if (currTokenCnt >= 0)
+        *nTok = currTokenCnt;
 
     // Handle errors
-    if (n < 0) // Error during parse loop
-        return n;
-    if (s > END) // TLV data exceeds byte array provided
+    if (currTokenCnt < 0) // Error during parse loop
+        return err;
+    if (pSrcCurr > END) // TLV data exceeds byte array provided
         return TLV_ERR_MSGSIZE;
 
     // Return the total length of the TLV data
-    return s-BEGIN;
+    return pSrcCurr-BEGIN;
 }
 
-int tlv_serialize(void* dest, int* len, const TLVToken* t, int nTok)
+int tlv_serialize(void* pDest, int* pLen, const TLVToken* pToken, int nTok)
 {
-    if (!dest || !len || *len < 0 || !t || nTok < 0)
+    if (!pDest || !pLen || *pLen < 0 || !pToken || nTok < 0)
         return TLV_ERR_BADARG;
 
-    uint8_t* d = dest;
-    const uint8_t* const BEGIN = d;
-    const uint8_t* const END = d + *len;
+    uint8_t* pDestCurr = pDest;
+    const uint8_t* const BEGIN = pDestCurr;
+    const uint8_t* const END = pDestCurr + *pLen;
 
-    TLV_LOG("Serializing %d tokens into %i byte buffer\n\r", nTok, *len);
+    TLV_LOG("Serializing %d tokens into %i byte buffer\n\r", nTok, *pLen);
 
-    *len = 0;
+    *pLen = 0;
     int err = 0;
-    for (int i = 0; i <= nTok; i++) {
+    for (int currTokenCnt = 0; currTokenCnt < nTok; currTokenCnt++) {
         // Write the tag field
-        TLV_LOG("tag: %08X\n\r", t[i].tag);
-        err = encode_tag(&d, END-d, t[i].tag);
+        TLV_LOG("tag: %08X\n\r", pToken[currTokenCnt].tag);
+        err = encode_tag(&pDestCurr, END-pDestCurr, pToken[currTokenCnt].tag);
         if (err < 0)
             return err;
-        if (*len + err < *len)
+        if (*pLen + err < *pLen)
             return TLV_ERR_OVERFLOW;
 
         // Write the length field
-        TLV_LOG("len: %u\n\r", t[i].len);
-        err = encode_length(&d, END-d, t[i].len);
+        TLV_LOG("len: %u\n\r", pToken[currTokenCnt].len);
+        err = encode_length(&pDestCurr, END-pDestCurr, pToken[currTokenCnt].len);
         if (err < 0)
             return err;
-        if (*len + err < *len)
+        if (*pLen + err < *pLen)
             return TLV_ERR_OVERFLOW;
 
         // Copy the value
         TLV_LOG("val: ");
-        TLV_LOG_HEX(t[i].val, t[i].len);
+        TLV_LOG_HEX(pToken[currTokenCnt].val, pToken[currTokenCnt].len);
         TLV_LOG_LINE();
-        const uint8_t* v = t[i].val;
-        const uint8_t* const VAL_END = v + t[i].len;
+        const uint8_t* v = pToken[currTokenCnt].val;
+        const uint8_t* const VAL_END = v + pToken[currTokenCnt].len;
         while (v < VAL_END) {
             // Make sure not to overrun the buffer
-            if (d >= END)
+            if (pDestCurr >= END)
                 return TLV_ERR_NOMEM;
 
-            *d++ = *v++;
+            *pDestCurr++ = *v++;
         }
     }
 
     // Return total serialized length
-    return *len = d-BEGIN;
+    return *pLen = pDestCurr-BEGIN;
 }
 
